@@ -13,15 +13,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ✅ Δημιουργία νέου πίνακα Measurements
+# ✅ Νέος πίνακας για αποθήκευση ολόκληρου του μηνύματος
 class Measurement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    device = db.Column(db.String(50), nullable=False)
-    sensor = db.Column(db.String(50), nullable=False)  # Νέο πεδίο για αισθητήρες
-    temperature = db.Column(db.Float)
-    battery = db.Column(db.Float)
-    rssi = db.Column(db.Integer)
-    timestamp = db.Column(db.DateTime, default=db.func.current_timestamp())  # Αυτόματη ημερομηνία εισαγωγής
+    message = db.Column(db.Text, nullable=False)  # Ολόκληρο το μήνυμα αποθηκεύεται εδώ
+    timestamp = db.Column(db.DateTime, default=db.func.current_timestamp())  # Χρόνος καταγραφής
 
 # ✅ Δημιουργία της βάσης και των πινάκων
 with app.app_context():
@@ -31,39 +27,49 @@ with app.app_context():
 # ✅ Route για αποστολή δεδομένων
 @app.route('/data', methods=['POST'])
 def receive_data():
-    data = request.json
-    if not data or 'device' not in data or 'sensor' not in data:
-        return jsonify({"error": "Invalid data"}), 400
+    try:
+        raw_data = request.data.decode("utf-8")  # Διαβάζουμε τα ακατέργαστα δεδομένα
+        print(f"🔍 RAW Received Data: {raw_data}")
 
-    measurement = Measurement(
-        device=data['device'],
-        sensor=data['sensor'],
-        temperature=data.get('temperature'),  # Μπορεί να είναι None
-        battery=data.get('battery'),  # Μπορεί να είναι None
-        rssi=data.get('rssi')  # Μπορεί να είναι None
-    )
+        data = request.get_json(silent=True)
 
-    db.session.add(measurement)
-    db.session.commit()
+        if not data:
+            print("❌ JSON Parsing Error! Possible encoding issue.")
+            return jsonify({"error": "Invalid JSON format"}), 400
 
-    return jsonify({"message": "Data received"}), 201
+        print("🔍 Parsed JSON Data:", data)
+
+        if 'message' not in data:
+            print("❌ Missing 'message' field!")
+            return jsonify({"error": "Invalid data, 'message' is required"}), 400
+
+        measurement = Measurement(
+            message=data['message']
+        )
+
+        db.session.add(measurement)
+        db.session.commit()
+
+        print(f"✅ Data saved successfully! Message: {data['message']}")
+        return jsonify({"message": "Data received"}), 201
+
+    except Exception as e:
+        print("❌ Error:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 # ✅ Route για λήψη όλων των δεδομένων
 @app.route('/data', methods=['GET'])
 def get_data():
-    measurements = Measurement.query.all()
+    measurements = Measurement.query.order_by(Measurement.id.desc()).all()  # Φέρνει τα πιο πρόσφατα πρώτα
     results = [
         {
             "id": m.id,
-            "device": m.device,
-            "sensor": m.sensor,
-            "temperature": m.temperature,
-            "battery": m.battery,
-            "rssi": m.rssi,
+            "message": m.message,  # Επιστρέφουμε το ολόκληρο το μήνυμα
             "timestamp": m.timestamp
         }
         for m in measurements
     ]
+    print("🔍 Sending data:", results)  # Debugging
     return jsonify(results)
 
 # ✅ Route για διαγραφή όλων των δεδομένων
@@ -72,9 +78,11 @@ def delete_data():
     try:
         num_deleted = db.session.query(Measurement).delete()
         db.session.commit()
+        print(f"✅ Deleted {num_deleted} records from database.")
         return jsonify({"message": f"Deleted {num_deleted} records"}), 200
     except Exception as e:
         db.session.rollback()
+        print("❌ Error deleting records:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
