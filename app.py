@@ -13,13 +13,15 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Δημιουργία του πίνακα Measurement
+# ✅ Δημιουργία νέου πίνακα Measurements
 class Measurement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device = db.Column(db.String(50), nullable=False)
-    temperature = db.Column(db.Float, nullable=False)
-    battery = db.Column(db.Float, nullable=False)
-    rssi = db.Column(db.Integer, nullable=False)
+    sensor = db.Column(db.String(50), nullable=False)  # Νέο πεδίο για αισθητήρες
+    temperature = db.Column(db.Float)
+    battery = db.Column(db.Float)
+    rssi = db.Column(db.Integer)
+    timestamp = db.Column(db.DateTime, default=db.func.current_timestamp())  # Αυτόματη ημερομηνία εισαγωγής
 
 # ✅ Δημιουργία της βάσης και των πινάκων
 with app.app_context():
@@ -30,14 +32,15 @@ with app.app_context():
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.json
-    if not data or 'device' not in data or 'temperature' not in data or 'battery' not in data or 'rssi' not in data:
+    if not data or 'device' not in data or 'sensor' not in data:
         return jsonify({"error": "Invalid data"}), 400
 
     measurement = Measurement(
         device=data['device'],
-        temperature=data['temperature'],
-        battery=data['battery'],
-        rssi=data['rssi']
+        sensor=data['sensor'],
+        temperature=data.get('temperature'),  # Μπορεί να είναι None
+        battery=data.get('battery'),  # Μπορεί να είναι None
+        rssi=data.get('rssi')  # Μπορεί να είναι None
     )
 
     db.session.add(measurement)
@@ -53,9 +56,11 @@ def get_data():
         {
             "id": m.id,
             "device": m.device,
+            "sensor": m.sensor,
             "temperature": m.temperature,
             "battery": m.battery,
-            "rssi": m.rssi
+            "rssi": m.rssi,
+            "timestamp": m.timestamp
         }
         for m in measurements
     ]
